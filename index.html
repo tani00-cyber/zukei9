@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>回転体の学習クイズ</title>
+    <!-- Tailwind CSS (デザイン用) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Three.js (3D描画用) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+        body { font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', Meiryo, sans-serif; }
+        .fade-in { animation: fadeIn 0.5s ease-in-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 h-screen flex flex-col md:flex-row overflow-hidden">
+
+    <!-- 左側: 3Dビューポート -->
+    <div class="relative w-full md:w-2/3 h-3/5 md:h-full bg-gradient-to-br from-blue-50 to-indigo-100 overflow-hidden" id="canvas-container">
+        <!-- Three.jsのCanvasはここに挿入されます -->
+        
+        <!-- ラベル: 軸ℓ -->
+        <div class="absolute top-10 left-1/2 transform -translate-x-1/2 bg-red-600 text-white text-sm font-bold px-2 py-1 rounded-full shadow-lg z-10">
+            軸 ℓ
+        </div>
+        
+        <div class="absolute bottom-4 left-4 text-xs text-slate-500 bg-white/80 p-2 rounded z-10">
+            数学1年 空間図形 - 回転体シミュレータ
+        </div>
+    </div>
+
+    <!-- 右側: コントロールパネル -->
+    <div class="w-full md:w-1/3 h-2/5 md:h-full p-6 flex flex-col bg-white shadow-xl overflow-y-auto z-20">
+        
+        <!-- ヘッダー -->
+        <div class="mb-6">
+            <div class="flex items-center justify-between mb-2">
+                <span class="text-sm font-semibold text-blue-600 tracking-wider" id="level-indicator">LEVEL 1/10</span>
+                <span class="text-xs text-slate-400">回転体の性質</span>
+            </div>
+            <h2 class="text-2xl font-bold mb-1 text-slate-800" id="question-title">タイトル</h2>
+            <div class="h-1 w-12 bg-blue-500 rounded-full"></div>
+        </div>
+
+        <div class="flex-1 flex flex-col justify-center" id="ui-content">
+            <!-- ここにクイズの内容がJavaScriptで描画されます -->
+        </div>
+    </div>
+
+    <script>
+        // --- データ定義 ---
+        const MASTER_QUIZ_DATA = [
+            { id: 1, title: "基本の形 1", shapeType: "rectangle", question: "この「長方形」を、軸ℓを中心に1回転させるとできる立体は？", options: ["円柱", "三角柱", "円錐"], correct: "円柱", description: "長方形を回転させると、底面が円の「円柱」になります。" },
+            { id: 2, title: "基本の形 2", shapeType: "triangle", question: "この「直角三角形」を、軸ℓを中心に1回転させるとできる立体は？", options: ["円柱", "円錐", "三角錐"], correct: "円錐", description: "直角三角形を回転させると、先がとがった「円錐」になります。" },
+            { id: 3, title: "曲線の回転", shapeType: "semicircle", question: "この「半円」を、軸ℓを中心に1回転させるとできる立体は？", options: ["円柱", "半球", "球"], correct: "球", description: "半円を直径を軸にして回転させると、「球」になります。" },
+            { id: 4, title: "少し複雑な形", shapeType: "trapezoid", question: "この「台形」を、軸ℓを中心に1回転させるとできる立体は？", options: ["円柱", "円錐", "円錐台"], correct: "円錐台", description: "台形（円錐の上を切り取った形）を回転させると、「円錐台」になります。" },
+            { id: 5, title: "軸から離れた形", shapeType: "offset_rectangle", question: "軸から少し離れた「長方形」を回転させると？", options: ["太い円柱", "ドーナツ型", "穴のあいた円柱"], correct: "穴のあいた円柱", description: "軸から離れている部分は空洞になり、トイレットペーパーのような「穴のあいた円柱」になります。" },
+            { id: 6, title: "とがった形", shapeType: "rhombus", question: "この「ひし形」を、軸ℓを対角線として1回転させると？", options: ["2つの円錐", "角柱", "八面体"], correct: "2つの円錐", description: "上下に2つの円錐をくっつけたような形（そろばんの珠のような形）になります。" },
+            { id: 7, title: "段のある形", shapeType: "l_shape", question: "この「L字型の図形」を回転させると？", options: ["大小の円柱", "階段", "円錐台"], correct: "大小の円柱", description: "太い円柱の上に細い円柱が乗ったような、段のある立体になります。" },
+            { id: 8, title: "浮いている円", shapeType: "offset_circle", question: "軸から離れた「円」を回転させると？", options: ["球", "ドーナツ型", "円盤"], correct: "ドーナツ型", description: "中心に穴の開いた、ドーナツのような形（円環・トーラス）になります。" },
+            { id: 9, title: "組み合わせの形", shapeType: "pentagon", question: "この「五角形（ホームベース型）」を回転させると？", options: ["鉛筆のような形", "角柱", "ピラミッド"], correct: "鉛筆のような形", description: "下の長方形が「円柱」、上の三角形が「円錐」になり、それらが合体した形になります。" },
+            { id: 10, title: "円の一部", shapeType: "quarter_circle", question: "この「扇形（円の4分の1）」を回転させると？", options: ["球", "半球", "円錐"], correct: "半球", description: "球をちょうど半分に切った「半球」になります。" }
+        ];
+
+        // --- 状態管理 ---
+        let currentQuizData = []; // シャッフル後のデータ
+        let currentLevelIndex = 0;
+        let gameState = 'question'; // 'question', 'animating', 'result'
+        let currentGroup = null; // 3Dオブジェクトのグループ
+        let shapeMesh = null; // 2D形状
+        let solidMesh = null; // 3D形状
+
+        // --- ユーティリティ ---
+        function shuffleArray(array) {
+            const newArray = [...array];
+            for (let i = newArray.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [newArray[i], newArray[j]] = [newArray[j], newArray[i]];
+            }
+            return newArray;
+        }
+
+        function generateShuffledQuiz() {
+            const shuffledQuestions = shuffleArray(MASTER_QUIZ_DATA);
+            return shuffledQuestions.map(q => ({
+                ...q,
+                options: shuffleArray(q.options)
+            }));
+        }
+
+        // --- Three.js 初期化 ---
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0xf0f9ff);
+        
+        const container = document.getElementById('canvas-container');
+        const width = container.clientWidth;
+        const height = container.clientHeight;
+        
+        const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 100);
+        camera.position.set(4, 3, 6);
+        camera.lookAt(0, 1, 0);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(width, height);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        container.appendChild(renderer.domElement);
+
+        // ライト
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        scene.add(ambientLight);
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        directionalLight.position.set(5, 10, 7);
+        scene.add(directionalLight);
+
+        // 軸・グリッド
+        const axisGroup = new THREE.Group();
+        const axisGeometry = new THREE.CylinderGeometry(0.02, 0.02, 6, 8);
+        const axisMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+        const axisLine = new THREE.Mesh(axisGeometry, axisMaterial);
+        axisLine.position.y = 1;
+        axisGroup.add(axisLine);
+        
+        const labelGeo = new THREE.SphereGeometry(0.15);
+        const labelMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+        const labelTop = new THREE.Mesh(labelGeo, labelMat);
+        labelTop.position.y = 3.5;
+        axisGroup.add(labelTop);
+        scene.add(axisGroup);
+
+        const gridHelper = new THREE.GridHelper(10, 10, 0xcccccc, 0xe5e5e5);
+        scene.add(gridHelper);
+
+        // --- 形状生成ロジック ---
+        function update3DShape(shapeType) {
+            if (currentGroup) scene.remove(currentGroup);
+            
+            const group = new THREE.Group();
+            currentGroup = group;
+
+            const shape = new THREE.Shape();
+            let lathePoints = [];
+
+            // 形状ごとのパス定義
+            if (shapeType === 'rectangle') {
+                shape.moveTo(0, 0); shape.lineTo(1.5, 0); shape.lineTo(1.5, 3); shape.lineTo(0, 3); shape.lineTo(0, 0);
+                lathePoints = [new THREE.Vector2(0, 0), new THREE.Vector2(1.5, 0), new THREE.Vector2(1.5, 3), new THREE.Vector2(0, 3), new THREE.Vector2(0, 0)];
+            } else if (shapeType === 'triangle') {
+                shape.moveTo(0, 0); shape.lineTo(1.5, 0); shape.lineTo(0, 3); shape.lineTo(0, 0);
+                lathePoints = [new THREE.Vector2(0, 0), new THREE.Vector2(1.5, 0), new THREE.Vector2(0, 3)];
+            } else if (shapeType === 'semicircle') {
+                shape.absarc(0, 1.5, 1.5, -Math.PI / 2, Math.PI / 2, false); shape.lineTo(0, 0);
+                for (let i = 0; i <= 20; i++) {
+                    const theta = -Math.PI / 2 + (Math.PI * i) / 20;
+                    lathePoints.push(new THREE.Vector2(Math.cos(theta) * 1.5, 1.5 + Math.sin(theta) * 1.5));
+                }
+                lathePoints.push(new THREE.Vector2(0, 3)); lathePoints.push(new THREE.Vector2(0, 0));
+            } else if (shapeType === 'trapezoid') {
+                shape.moveTo(0, 0); shape.lineTo(1.5, 0); shape.lineTo(1.0, 3); shape.lineTo(0, 3); shape.lineTo(0, 0);
+                lathePoints = [new THREE.Vector2(0, 0), new THREE.Vector2(1.5, 0), new THREE.Vector2(1.0, 3), new THREE.Vector2(0, 3)];
+            } else if (shapeType === 'offset_rectangle') {
+                const offset = 0.5, width = 1.0;
+                shape.moveTo(offset, 0); shape.lineTo(offset + width, 0); shape.lineTo(offset + width, 3); shape.lineTo(offset, 3); shape.lineTo(offset, 0);
+                lathePoints = [new THREE.Vector2(offset, 0), new THREE.Vector2(offset + width, 0), new THREE.Vector2(offset + width, 3), new THREE.Vector2(offset, 3), new THREE.Vector2(offset, 0)];
+            } else if (shapeType === 'rhombus') {
+                shape.moveTo(0, 0.5); shape.lineTo(1.5, 2.0); shape.lineTo(0, 3.5); shape.lineTo(0, 0.5);
+                lathePoints = [new THREE.Vector2(0, 0.5), new THREE.Vector2(1.5, 2.0), new THREE.Vector2(0, 3.5)];
+            } else if (shapeType === 'l_shape') {
+                shape.moveTo(0, 0); shape.lineTo(2.0, 0); shape.lineTo(2.0, 1.0); shape.lineTo(1.0, 1.0); shape.lineTo(1.0, 3.0); shape.lineTo(0, 3.0); shape.lineTo(0, 0);
+                lathePoints = [new THREE.Vector2(0, 0), new THREE.Vector2(2.0, 0), new THREE.Vector2(2.0, 1.0), new THREE.Vector2(1.0, 1.0), new THREE.Vector2(1.0, 3.0), new THREE.Vector2(0, 3.0)];
+            } else if (shapeType === 'offset_circle') {
+                const cx = 1.8, cy = 2.0, r = 0.6;
+                shape.absarc(cx, cy, r, 0, Math.PI * 2, false);
+                for (let i = 0; i <= 32; i++) {
+                    const theta = (Math.PI * 2 * i) / 32;
+                    lathePoints.push(new THREE.Vector2(cx + Math.cos(theta) * r, cy + Math.sin(theta) * r));
+                }
+            } else if (shapeType === 'pentagon') {
+                shape.moveTo(0, 0); shape.lineTo(1.5, 0); shape.lineTo(1.5, 2.0); shape.lineTo(0, 3.5); shape.lineTo(0, 0);
+                lathePoints = [new THREE.Vector2(0, 0), new THREE.Vector2(1.5, 0), new THREE.Vector2(1.5, 2.0), new THREE.Vector2(0, 3.5)];
+            } else if (shapeType === 'quarter_circle') {
+                shape.moveTo(0, 0); shape.lineTo(2.0, 0); shape.absarc(0, 0, 2.0, 0, Math.PI / 2, false); shape.lineTo(0, 0);
+                lathePoints = [new THREE.Vector2(0, 0), new THREE.Vector2(2.0, 0)];
+                for (let i = 1; i <= 20; i++) {
+                    const theta = (Math.PI / 2 * i) / 20;
+                    lathePoints.push(new THREE.Vector2(Math.cos(theta) * 2.0, Math.sin(theta) * 2.0));
+                }
+                lathePoints.push(new THREE.Vector2(0, 2.0));
+            }
+
+            // 2D Shape
+            const shapeGeometry = new THREE.ShapeGeometry(shape);
+            const shapeMaterial = new THREE.MeshBasicMaterial({ color: 0x3b82f6, side: THREE.DoubleSide, transparent: true, opacity: 0.8 });
+            shapeMesh = new THREE.Mesh(shapeGeometry, shapeMaterial);
+            group.add(shapeMesh);
+
+            const edges = new THREE.EdgesGeometry(shapeGeometry);
+            const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x1d4ed8, linewidth: 2 }));
+            group.add(line);
+
+            // 3D Solid
+            const solidGeometry = new THREE.LatheGeometry(lathePoints, 32);
+            const solidMaterial = new THREE.MeshPhongMaterial({ color: 0x60a5fa, transparent: true, opacity: 0.8, shininess: 60, side: THREE.DoubleSide });
+            solidMesh = new THREE.Mesh(solidGeometry, solidMaterial);
+            solidMesh.visible = false;
+            
+            const solidEdges = new THREE.EdgesGeometry(solidGeometry);
+            const solidLine = new THREE.LineSegments(solidEdges, new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.3 }));
+            solidMesh.add(solidLine);
+            
+            group.add(solidMesh);
+            scene.add(group);
+        }
+
+        // --- アニメーションループ ---
+        function animate() {
+            requestAnimationFrame(animate);
+
+            if (gameState === 'animating' && currentGroup) {
+                currentGroup.rotation.y += 0.1;
+                
+                if (currentGroup.rotation.y >= Math.PI * 2) {
+                    currentGroup.rotation.y = 0;
+                    gameState = 'result';
+                    // 形状の切り替え
+                    if (shapeMesh) shapeMesh.visible = false;
+                    if (solidMesh) solidMesh.visible = true;
+                    // UI更新
+                    renderUI(); 
+                }
+            } else if (gameState === 'result' && currentGroup) {
+                currentGroup.rotation.y += 0.01; // ゆっくり回転
+            }
+
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        // リサイズ対応
+        window.addEventListener('resize', () => {
+            const w = container.clientWidth;
+            const h = container.clientHeight;
+            camera.aspect = w / h;
+            camera.updateProjectionMatrix();
+            renderer.setSize(w, h);
+        });
+
+        // --- ゲームロジック & UI描画 ---
+        let currentIsCorrect = false;
+
+        function initGame() {
+            currentQuizData = generateShuffledQuiz();
+            currentLevelIndex = 0;
+            loadLevel();
+        }
+
+        function loadLevel() {
+            gameState = 'question';
+            currentIsCorrect = false;
+            const data = currentQuizData[currentLevelIndex];
+            
+            // 3D更新
+            update3DShape(data.shapeType);
+            
+            // ヘッダー更新
+            document.getElementById('level-indicator').textContent = `LEVEL ${currentLevelIndex + 1}/${currentQuizData.length}`;
+            document.getElementById('question-title').textContent = data.title;
+            
+            renderUI();
+        }
+
+        function handleAnswer(option) {
+            const data = currentQuizData[currentLevelIndex];
+            currentIsCorrect = (option === data.correct);
+            gameState = 'animating';
+            renderUI(); // アニメーション中のUIへ
+        }
+
+        function handleNext() {
+            if (currentLevelIndex < currentQuizData.length - 1) {
+                currentLevelIndex++;
+                loadLevel();
+            } else {
+                initGame(); // リセット
+            }
+        }
+
+        function renderUI() {
+            const uiContainer = document.getElementById('ui-content');
+            uiContainer.innerHTML = ''; // クリア
+            
+            const data = currentQuizData[currentLevelIndex];
+
+            // SVGアイコン定義
+            const checkIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
+            const xIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>`;
+            const rotateIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="animate-spin"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg>`;
+            const arrowRightIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>`;
+            const redoIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>`;
+
+            if (gameState === 'question') {
+                // 問題画面
+                const questionHTML = `
+                    <div class="space-y-4 fade-in">
+                        <p class="text-lg font-medium leading-relaxed mb-4">${data.question}</p>
+                        <div class="grid grid-cols-1 gap-3">
+                            ${data.options.map((opt, idx) => `
+                                <button onclick="handleAnswer('${opt}')" class="w-full p-4 text-left rounded-xl border-2 border-slate-200 hover:border-blue-500 hover:bg-blue-50 transition-all font-bold text-slate-700 flex items-center group">
+                                    <div class="w-8 h-8 rounded-full bg-slate-200 text-slate-500 flex items-center justify-center mr-3 group-hover:bg-blue-500 group-hover:text-white transition-colors">
+                                        ${idx + 1}
+                                    </div>
+                                    ${opt}
+                                </button>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+                uiContainer.innerHTML = questionHTML;
+
+            } else if (gameState === 'animating') {
+                // 回転中画面
+                const animatingHTML = `
+                    <div class="text-center py-10 fade-in">
+                        <div class="inline-block p-4 rounded-full bg-blue-100 text-blue-600 mb-4">
+                            ${rotateIcon}
+                        </div>
+                        <p class="text-xl font-bold text-blue-800">回転中...</p>
+                        <p class="text-slate-500">平面図形が軌跡を描いています</p>
+                    </div>
+                `;
+                uiContainer.innerHTML = animatingHTML;
+
+            } else if (gameState === 'result') {
+                // 結果画面
+                const isLast = currentLevelIndex >= currentQuizData.length - 1;
+                const resultHTML = `
+                    <div class="space-y-4 fade-in">
+                        <div class="p-4 rounded-xl flex items-start gap-4 ${currentIsCorrect ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}">
+                            <div class="p-2 rounded-full flex-shrink-0 ${currentIsCorrect ? 'bg-green-500' : 'bg-red-500'} text-white">
+                                ${currentIsCorrect ? checkIcon : xIcon}
+                            </div>
+                            <div>
+                                <h3 class="font-bold text-lg ${currentIsCorrect ? 'text-green-800' : 'text-red-800'}">
+                                    ${currentIsCorrect ? '正解！' : 'おしい！'}
+                                </h3>
+                                <p class="text-slate-700 font-medium mt-1">
+                                    正解は <span class="text-lg font-bold underline decoration-wavy decoration-blue-400 mx-1">${data.correct}</span> です。
+                                </p>
+                            </div>
+                        </div>
+
+                        <div class="bg-slate-50 p-4 rounded-xl text-slate-600 text-sm leading-relaxed border border-slate-100">
+                            <strong>解説:</strong><br/>
+                            ${data.description}
+                        </div>
+
+                        <button onclick="handleNext()" class="w-full mt-4 py-4 bg-slate-800 text-white rounded-xl font-bold flex items-center justify-center hover:bg-slate-700 transition-all shadow-lg hover:shadow-xl transform active:scale-95">
+                            ${isLast ? '最初からリトライ（順序が変わります）' : '次の問題へ'}
+                            <span class="ml-2">${isLast ? redoIcon : arrowRightIcon}</span>
+                        </button>
+                    </div>
+                `;
+                uiContainer.innerHTML = resultHTML;
+            }
+        }
+
+        // 初期化実行
+        initGame();
+
+    </script>
+</body>
+</html>
